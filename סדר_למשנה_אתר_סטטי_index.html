@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>סדר למשנה</title>
+  <style>
+    body{font-family: Arial, Helvetica, sans-serif;max-width:1100px;margin:18px auto;padding:10px;background:#fbfbfb;color:#111}
+    header{display:flex;align-items:center;justify-content:space-between}
+    h1{margin:0 0 6px 0}
+    .controls{display:flex;gap:8px;align-items:center}
+    button{padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer}
+    input,select,textarea{padding:6px;border:1px solid #ccc;border-radius:6px}
+    .masecht-list{margin-top:14px}
+    .card{background:#fff;border:1px solid #e6e6e6;padding:12px;border-radius:10px;margin-bottom:12px}
+    .flex{display:flex;gap:10px;align-items:center}
+    table{width:100%;border-collapse:collapse;margin-top:8px}
+    th,td{border:1px solid #ddd;padding:6px;text-align:right}
+    .small{font-size:0.9em;color:#666}
+    .file-embed{width:100%;height:600px;border:1px solid #ccc}
+    .right{margin-right:auto}
+    label{display:block;margin-top:6px}
+    .meta{font-size:0.85em;color:#666}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>סדר למשנה</h1>
+      <div class="meta">אתר פשוט להצגת חוברות ומפותעני מסכתות — קריאה, העלאת קבצים, טבלאות ותגובות.</div>
+    </div>
+    <div class="controls">
+      <button id="exportBtn">ייצא ZIP (לאחסון חיצוני)</button>
+      <button id="clearBtn">איפוס מקומי</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>הוסף מסכת / חוברת חדשה</h2>
+    <div class="flex">
+      <input id="title" placeholder="שם המסכת / כותרת החוברת" />
+      <input id="author" placeholder="מחבר (אופציונלי)" />
+      <input type="file" id="pdffile" accept="application/pdf" />
+      <button id="addMasechet">הוסף</button>
+    </div>
+    <div class="small">העלאת קובץ שמורכת ב-localStorage — לשמירה קבועה מומלץ לייצא ולהעלות ל-GitHub Pages או לאחסון אחר.</div>
+  </section>
+
+  <section class="masecht-list" id="list"></section>
+
+  <script>
+  // Data model in localStorage under key 'seder_mishnayot_v1'
+  const STORAGE_KEY = 'seder_mishnayot_v1'
+
+  function loadData(){
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {masechtot: {}}
+  }
+  function saveData(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) }
+
+  // Utilities
+  function uid(){ return 'id'+Math.random().toString(36).slice(2,9) }
+
+  // Render
+  function render(){
+    const root = document.getElementById('list')
+    root.innerHTML = ''
+    const data = loadData()
+    const keys = Object.keys(data.masechtot)
+    if(!keys.length){ root.innerHTML = '<div class="card">אין מסכתות - הוסף מסכת חדשה</div>'; return }
+    keys.forEach(id=>{ const m = data.masechtot[id]
+      const el = document.createElement('div'); el.className='card'
+      el.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <div>
+            <strong>${escapeHtml(m.title)}</strong> <div class="small">${escapeHtml(m.author||'—')}</div>
+            <div class="small">צפיות: <span id="views_${id}">${m.views||0}</span> — תגובות: <span id="comments_count_${id}">${(m.comments||[]).length}</span></div>
+          </div>
+          <div class="flex">
+            <button data-id="${id}" class="openBtn">פתח</button>
+            <button data-id="${id}" class="editBtn">טבלה</button>
+            <button data-id="${id}" class="deleteBtn">מחק</button>
+          </div>
+        </div>
+      `
+      root.appendChild(el)
+    })
+  }
+
+  function escapeHtml(s){ if(!s) return ''; return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
+
+  // Add masechet
+  document.getElementById('addMasechet').addEventListener('click', async ()=>{
+    const t = document.getElementById('title').value.trim();
+    if(!t){ alert('כתוב שם למסכת'); return }
+    const author = document.getElementById('author').value.trim()
+    const fileInput = document.getElementById('pdffile')
+    let pdfData = null
+    if(fileInput.files && fileInput.files[0]){
+      const f = fileInput.files[0]
+      pdfData = await fileToDataURL(f)
+    }
+    const data = loadData()
+    const id = uid()
+    data.masechtot[id] = {id, title:t, author, pdfData, views:0, comments:[], tables:[]}
+    saveData(data)
+    document.getElementById('title').value=''; document.getElementById('author').value=''; fileInput.value=''
+    render()
+  })
+
+  function fileToDataURL(file){
+    return new Promise((res,rej)=>{
+      const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(file)
+    })
+  }
+
+  // Delegation for buttons
+  document.getElementById('list').addEventListener('click', e=>{
+    if(e.target.matches('.openBtn')) openMasechet(e.target.dataset.id)
+    if(e.target.matches('.editBtn')) openEditor(e.target.dataset.id)
+    if(e.target.matches('.deleteBtn')){ if(confirm('האם למחוק את הפריט?')){ deleteMasechet(e.target.dataset.id) }}
+  })
+
+  function deleteMasechet(id){
+    const data=loadData(); delete data.masechtot[id]; saveData(data); render()
+  }
+
+  // Open masechet viewer
+  function openMasechet(id){
+    const data = loadData(); const m = data.masechtot[id]; if(!m) return alert('לא נמצא')
+    m.views = (m.views||0)+1; saveData(data)
+    render()
+    const w = window.open('', '_blank')
+    // Build simple viewer content
+    const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>${escapeHtml(m.title)}</title><style>body{font-family:Arial;padding:14px} .right{direction:rtl} iframe{width:100%;height:700px;border:1px solid #ccc}</style></head><body><h1>${escapeHtml(m.title)}</h1><div class="small">מחבר: ${escapeHtml(m.author||'—')}</div><div id="viewer"></div><h3>טבלאות מקושרות</h3><div id="tables"></div><h3>תגובות</h3><div id="comments"></div><form id="cform"><textarea id="ctext" rows="3" style="width:100%" placeholder="כתוב תגובה"></textarea><button>שלח</button></form><script>
+    const data=${JSON.stringify(m)}
+    const viewer=document.getElementById('viewer')
+    if(data.pdfData){ viewer.innerHTML='<iframe src="'+data.pdfData+'"></iframe>' }
+    const tablesDiv=document.getElementById('tables')
+    if(data.tables && data.tables.length){ data.tables.forEach((t,i)=>{ const d=document.createElement('div'); d.innerHTML='<strong>'+t.title+'</strong><div>'+t.html+'</div>'; tablesDiv.appendChild(d) }) } else tablesDiv.innerHTML='<div class="small">אין טבלאות</div>'
+    const commentsDiv=document.getElementById('comments')
+    function renderComments(){ commentsDiv.innerHTML=''; (data.comments||[]).forEach(c=>{ const d=document.createElement('div'); d.style.borderTop='1px solid #ddd'; d.style.padding='6px'; d.innerHTML='<div style="font-size:0.9em;color:#666">'+(c.when||'')+'</div><div>'+c.text+'</div>'; commentsDiv.appendChild(d) }) }
+    renderComments()
+    document.getElementById('cform').addEventListener('submit',e=>{ e.preventDefault(); const txt=document.getElementById('ctext').value.trim(); if(!txt) return; data.comments = data.comments||[]; data.comments.push({text:txt,when:new Date().toLocaleString()}); localStorage.setItem('seder_mishnayot_v1_'+data.id, JSON.stringify(data)); // local note
+      // also update main storage in opener
+      try{ if(window.opener && window.opener.updateMasechetFromViewer) window.opener.updateMasechetFromViewer(data) }catch(err){}
+      document.getElementById('ctext').value=''; renderComments(); })
+    </script></body></html>`
+    w.document.write(html)
+    w.document.close()
+  }
+
+  // Editor for tables and comments (inline modal)
+  function openEditor(id){
+    const data = loadData(); const m = data.masechtot[id]; if(!m) return
+    // open small window
+    const w = window.open('', '_blank')
+    const html = `<!doctype html><html lang="he" dir="rtl"><head><meta charset="utf-8"><title>עורך - ${escapeHtml(m.title)}</title><style>body{font-family:Arial;padding:12px} table{width:100%;border-collapse:collapse} td,th{border:1px solid #ccc;padding:6px}</style></head><body><h1>עורך טבלאות: ${escapeHtml(m.title)}</h1>
+      <form id="tform"><input id="ttitle" placeholder="כותרת הטבלה" style="width:60%"/> <button>הוסף טבלה</button></form>
+      <div id="list"></div>
+      <script>
+      const data = ${JSON.stringify(m)}
+      function render(){ const root=document.getElementById('list'); root.innerHTML=''; (data.tables||[]).forEach((t,idx)=>{ const d=document.createElement('div'); d.style.border='1px solid #ddd'; d.style.marginTop='8px'; d.style.padding='6px'; d.innerHTML = '<div style="display:flex;justify-content:space-between"><strong>'+t.title+'</strong><div><button data-idx="'+idx+'" class="edit">ערוך</button> <button data-idx="'+idx+'" class="del">מחק</button></div></div><div>'+t.html+'</div>' ; root.appendChild(d) }) }
+      render()
+      document.getElementById('tform').addEventListener('submit',e=>{ e.preventDefault(); const tt=document.getElementById('ttitle').value.trim(); if(!tt) return alert('כתוב כותרת'); // open a prompt to build table
+        const rows = prompt('כמה שורות? (מספר)')
+        const cols = prompt('כמה עמודות? (מספר)')
+        const r = parseInt(rows||0), c = parseInt(cols||0); if(!r || !c) return alert('מספרים לא תקינים'); let html='<table>';
+        for(let i=0;i<r;i++){ html+='<tr>'; for(let j=0;j<c;j++){ const val = prompt(`תוכן תא שורה ${i+1} עמודה ${j+1}`) || ''; html+='<td>'+val+'</td>' } html+='</tr>' }
+        html+='</table>'
+        data.tables = data.tables||[]; data.tables.push({title:tt,html}); localStorage.setItem('seder_mishnayot_v1_'+data.id, JSON.stringify(data)); render(); // notify opener
+        try{ if(window.opener && window.opener.updateMasechetFromEditor) window.opener.updateMasechetFromEditor(data) }catch(err){}
+      })
+      // delegation for edit/del
+      document.getElementById('list').addEventListener('click', e=>{ if(e.target.matches('.del')){ const idx=e.target.dataset.idx; if(confirm('מחק טבלה?')){ data.tables.splice(idx,1); localStorage.setItem('seder_mishnayot_v1_'+data.id, JSON.stringify(data)); render(); try{ if(window.opener && window.opener.updateMasechetFromEditor) window.opener.updateMasechetFromEditor(data) }catch(err){} } } })
+      </script></body></html>`
+    w.document.write(html); w.document.close()
+  }
+
+  // Functions the child windows call to update main storage
+  window.updateMasechetFromViewer = function(newData){
+    const data = loadData(); if(!data.masechtot[newData.id]) data.masechtot[newData.id] = newData; else {
+      // merge comments and tables and pdf
+      const cur = data.masechtot[newData.id]
+      cur.comments = newData.comments || cur.comments || []
+      cur.tables = newData.tables || cur.tables || []
+      cur.pdfData = cur.pdfData || newData.pdfData
+      saveData(data)
+      render()
+    }
+  }
+  window.updateMasechetFromEditor = function(newData){
+    const data = loadData(); if(data.masechtot[newData.id]){ data.masechtot[newData.id].tables = newData.tables; data.masechtot[newData.id].comments = newData.comments || data.masechtot[newData.id].comments || []; saveData(data); render() }
+  }
+
+  // Export as ZIP using JSZip via CDN
+  document.getElementById('exportBtn').addEventListener('click', async ()=>{
+    const data = loadData();
+    const zipScript = document.createElement('script'); zipScript.src='https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js'; document.head.appendChild(zipScript)
+    zipScript.onload = async ()=>{
+      const JSZip = window.JSZip
+      const zip = new JSZip()
+      zip.file('data.json', JSON.stringify(data))
+      // include PDFs as files if present
+      for(const id in data.masechtot){ const m = data.masechtot[id]; if(m.pdfData){ // data:application/pdf;base64,...
+          const arr = m.pdfData.split(',')[1]
+          zip.file(`files/${id}_${sanitizeFilename(m.title)}.pdf`, arr, {base64:true})
+        }
+      }
+      zip.file('index.html', document.documentElement.outerHTML)
+      const blob = await zip.generateAsync({type:'blob'})
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'seder_lmishna_export.zip'; a.click()
+    }
+  })
+
+  function sanitizeFilename(s){ return s.replace(/[^0-9a-zA-Zא-ת _-]/g,'_').slice(0,80) }
+
+  // Clear local data
+  document.getElementById('clearBtn').addEventListener('click', ()=>{ if(confirm('לאפס את כל המידע המקומי? זה ימחוק הכל מהדפדפן הזה.')){ localStorage.removeItem(STORAGE_KEY); render() } })
+
+  // load initial
+  render()
+  </script>
+
+  <hr />
+  <section class="card">
+    <h3>הוראות פריסה חינם (GitHub Pages)</h3>
+    <ol>
+      <li>פתח חשבון ב-GitHub אם אין לך.</li>
+      <li>צור repository חדש (למשל "seder-lmishna").</li>
+      <li>במחשב שלך שמור את קובץ ה-index.html שעליו (קיימת בצד שמוצג כאן) ובתיקיית files שמור את ה-PDFים שתרצה שיהיו באתר.
+      </li>
+      <li>העלה ל-repo: index.html וקבצי files/.</li>
+      <li>ב-Settings -> Pages בחר את ה-branch הראשי ולחץ Save. האתר יתפרסם ב-https://<your-user>.github.io/<repo> בתוך כמה דקות.</li>
+    </ol>
+    <div class="small">לתגובות אחסון קבוע: אפשר להחליף את מנגנון התגובות לשימוש ב-GitHub Issues (כל תגובה הופכת issue), או לשלב Disqus, או Firebase (דורש פרויקט) — אם תרצה אוכל להכין התאמה כזו.</div>
+  </section>
+
+</body>
+</html>
