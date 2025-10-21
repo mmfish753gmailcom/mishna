@@ -1,570 +1,375 @@
-<!doctype html>
-<html lang="he" dir="rtl">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>סדר למשנה — גרסה מתוקנת</title>
+import React, { useState } from 'react';
+import { Trash2, Eye, Table, Plus, X, Save } from 'lucide-react';
 
-  <!-- JSZip כלול מראש כדי שמייצא ה-ZIP יעבוד באופן מהימן -->
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+const SederMishna = () => {
+  const [masechtot, setMasechtot] = useState({});
+  const [viewingMasechet, setViewingMasechet] = useState(null);
+  const [editingTables, setEditingTables] = useState(null);
+  const [newMasechet, setNewMasechet] = useState({ title: '', author: '', pdfData: null });
+  const [newComment, setNewComment] = useState('');
+  const [newTable, setNewTable] = useState({ title: '', rows: 2, cols: 2, data: [] });
+  const [showTableBuilder, setShowTableBuilder] = useState(false);
 
-  <style>
-    :root{--card-bg:#fff;--muted:#666;--accent:#0b66ff}
-    body{font-family: Arial, Helvetica, sans-serif;max-width:1100px;margin:18px auto;padding:14px;background:#fbfbfb;color:#111;direction:rtl}
-    header{display:flex;align-items:center;justify-content:space-between;gap:12px}
-    h1{margin:0 0 6px 0}
-    .controls{display:flex;gap:8px;align-items:center}
-    button{padding:8px 12px;border-radius:8px;border:1px solid #ccc;background:#fff;cursor:pointer}
-    input,select,textarea{padding:8px;border:1px solid #ccc;border-radius:6px}
-    .card{background:var(--card-bg);border:1px solid #e6e6e6;padding:12px;border-radius:10px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,0.03)}
-    .flex{display:flex;gap:10px;align-items:center}
-    table{width:100%;border-collapse:collapse;margin-top:8px}
-    th,td{border:1px solid #ddd;padding:6px;text-align:right}
-    .small{font-size:0.9em;color:var(--muted)}
-    .file-embed{width:100%;height:600px;border:1px solid #ccc}
-    label{display:block;margin-top:6px}
-    .meta{font-size:0.85em;color:var(--muted)}
-    .grid{display:grid;grid-template-columns:1fr 320px;gap:12px}
-    .overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;padding:12px;z-index:60}
-    .modal{background:#fff;padding:12px;border-radius:10px;max-width:980px;width:100%;max-height:90vh;overflow:auto}
-    .admin-badge{background:#111;color:#fff;padding:6px 8px;border-radius:8px;font-weight:600}
-    .muted{color:var(--muted)}
-    .actions{display:flex;gap:8px}
-    .right-align{display:flex;justify-content:flex-start} /* because dir=rtl */
-  </style>
-</head>
-<body>
-  <header>
-    <div>
-      <h1>סדר למשנה</h1>
-      <div class="meta">אתר להצגת חוברות: הורדה, קריאה ותגובות. העלאה — רק למנהלים.</div>
-    </div>
-
-    <div class="controls">
-      <button id="exportBtn">ייצא ZIP</button>
-      <button id="clearBtn">איפוס מקומי</button>
-      <button id="adminBtn">כניסת מנהל</button>
-      <span id="adminStatus" class="admin-badge" style="display:none">Admin</span>
-    </div>
-  </header>
-
-  <main class="grid">
-    <!-- צד שמאל: רשימת מסכתות / viewer -->
-    <div>
-      <section class="card">
-        <h2>מסכתות</h2>
-        <div id="list"></div>
-      </section>
-
-      <section id="viewerCard" class="card" style="display:none">
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <div>
-            <h2 id="vTitle" style="margin:0"></h2>
-            <div id="vMeta" class="small muted"></div>
-          </div>
-          <div class="actions">
-            <button id="downloadCurrent">הורד PDF</button>
-            <button id="closeViewer">סגור</button>
-          </div>
-        </div>
-        <hr>
-        <div id="viewerArea" style="min-height:360px"></div>
-
-        <h3>טבלאות מקושרות</h3>
-        <div id="viewerTables" class="small muted">אין טבלאות</div>
-
-        <h3>תגובות</h3>
-        <div id="commentsList"></div>
-        <form id="commentForm" style="margin-top:8px">
-          <textarea id="commentText" rows="3" style="width:100%" placeholder="כתוב תגובה"></textarea>
-          <div style="margin-top:8px;display:flex;gap:8px;align-items:center">
-            <input id="commentName" placeholder="שם (אופציונלי)" style="padding:8px" />
-            <button type="submit">שלח תגובה</button>
-          </div>
-        </form>
-      </section>
-    </div>
-
-    <!-- צד ימין: לוח ניהול (מופיע רק כשתתחבר כמנהל) -->
-    <aside>
-      <section id="adminPanel" class="card" style="display:none">
-        <h2>לוח מנהל</h2>
-
-        <div>
-          <label>העלאת PDF חדש</label>
-          <input type="text" id="admTitle" placeholder="כותרת" style="width:100%;margin-bottom:6px"/>
-          <input type="text" id="admAuthor" placeholder="מחבר (אופציונלי)" style="width:100%;margin-bottom:6px"/>
-          <input type="file" id="admFile" accept="application/pdf" />
-          <div style="margin-top:8px">
-            <button id="admUpload">העלאה</button>
-            <button id="admLogout" style="background:#fff;border:1px solid #f66;color:#f66">התנתק</button>
-          </div>
-        </div>
-
-        <hr>
-
-        <div>
-          <label>ניהול פריטים</label>
-          <div class="small muted">לחיצה על "מחק" תמחק לצמיתות.</div>
-          <div id="adminList" style="margin-top:8px"></div>
-        </div>
-
-        <hr>
-
-        <div>
-          <label>הגדר סיסמת מנהל (אם לא קיימת)</label>
-          <input type="password" id="setPass" placeholder="סיסמה חדשה" />
-          <button id="setPassBtn">שמור סיסמה</button>
-          <div class="small muted" style="margin-top:6px">הסיסמה נשמרת כהח"מ SHA-256 ב־localStorage (לא מומלץ לאתרים ציבוריים — עדיף backend אמיתי).</div>
-        </div>
-      </section>
-
-      <section class="card">
-        <h3>על האתר</h3>
-        <div class="small muted">
-          מערכת צד-לקוח לשמירת קבצים ב־IndexedDB ומטא־דאטה ב-localStorage.
-          מומלץ לפרודוקשן: להשתמש ב-backend מרכזי לאחסון ובקרת גישה.
-        </div>
-      </section>
-    </aside>
-  </main>
-
-  <!-- מודל -->
-  <div id="overlay" class="overlay" style="display:none">
-    <div class="modal">
-      <div id="modalContent"></div>
-      <div style="margin-top:12px;text-align:left"><button id="closeModal">סגור</button></div>
-    </div>
-  </div>
-
-<script>
-/* -------------------------
-   קונפיג
-   ------------------------- */
-const STORAGE_KEY = 'seder_mishnayot_v2'         // מטא־דאטה: id, title, author, fileId, views, comments, tables, created
-const ADMIN_PASS_KEY = 'seder_admin_pass_v2'     // SHA-256 hex של הסיסמה
-const DB_NAME = 'seder_files_db_v2'
-const DB_STORE = 'files'
-const TIMEZONE = 'Asia/Jerusalem'               // להצגת תאריכים
-
-/* -------------------------
-   IndexedDB קטן לשמירת קבצי PDF (Blob)
-   פונקציות: openDB, saveFileBlob, getFileBlob, deleteFileBlob
-   ------------------------- */
-function openDB(){
-  return new Promise((res, rej)=>{
-    const r = indexedDB.open(DB_NAME, 1)
-    r.onupgradeneeded = ()=> {
-      const db = r.result
-      if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE, {keyPath:'id'})
+  const handleAddMasechet = () => {
+    if (!newMasechet.title.trim()) {
+      alert('יש להזין שם למסכת');
+      return;
     }
-    r.onsuccess = ()=> res(r.result)
-    r.onerror = ()=> rej(r.error)
-  })
-}
-async function saveFileBlob(id, blob, meta={}){
-  const db = await openDB()
-  return new Promise((res, rej)=>{
-    const tx = db.transaction(DB_STORE, 'readwrite')
-    const store = tx.objectStore(DB_STORE)
-    store.put({id, blob, meta, created: new Date().toISOString()})
-    tx.oncomplete = ()=> res(true)
-    tx.onerror = ()=> rej(tx.error)
-  })
-}
-async function getFileBlob(id){
-  const db = await openDB()
-  return new Promise((res, rej)=>{
-    const tx = db.transaction(DB_STORE, 'readonly')
-    const store = tx.objectStore(DB_STORE)
-    const req = store.get(id)
-    req.onsuccess = ()=> res(req.result ? req.result.blob : null)
-    req.onerror = ()=> rej(req.error)
-  })
-}
-async function deleteFileBlob(id){
-  const db = await openDB()
-  return new Promise((res, rej)=>{
-    const tx = db.transaction(DB_STORE, 'readwrite')
-    const store = tx.objectStore(DB_STORE)
-    store.delete(id)
-    tx.oncomplete = ()=> res(true)
-    tx.onerror = ()=> rej(tx.error)
-  })
-}
+    const id = 'id' + Math.random().toString(36).slice(2, 9);
+    const masechet = {
+      id, title: newMasechet.title, author: newMasechet.author,
+      pdfData: newMasechet.pdfData, views: 0, comments: [], tables: []
+    };
+    setMasechtot({ ...masechtot, [id]: masechet });
+    setNewMasechet({ title: '', author: '', pdfData: null });
+  };
 
-/* -------------------------
-   מטא־דאטה: load/save
-   ------------------------- */
-function loadMeta(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : {masechtot: {}}
-  }catch(e){ return {masechtot:{}} }
-}
-function saveMeta(data){ localStorage.setItem(STORAGE_KEY, JSON.stringify(data)) }
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        alert('הקובץ גדול מדי. מקסימום 5MB');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = () => setNewMasechet({ ...newMasechet, pdfData: reader.result });
+      reader.onerror = () => alert('שגיאה בקריאת הקובץ');
+      reader.readAsDataURL(file);
+    }
+  };
 
-/* -------------------------
-   כלים קטנים
-   ------------------------- */
-function uid(){ return 'id'+Math.random().toString(36).slice(2,9) }
-function escapeHtml(s){ if(!s && s!==0) return ''; return String(s).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])) }
-function nowLocal(){ return new Date().toLocaleString('he-IL',{timeZone: TIMEZONE}) }
-function sanitizeFilename(s){ return (s||'file').replace(/[^0-9a-zA-Zא-ת _-]/g,'_').slice(0,120) }
+  const openMasechet = (id) => {
+    const masechet = masechtot[id];
+    const updated = { ...masechet, views: masechet.views + 1 };
+    setMasechtot({ ...masechtot, [id]: updated });
+    setViewingMasechet(updated);
+  };
 
-/* -------------------------
-   Admin: hash password (SHA-256 hex)
-   ------------------------- */
-async function sha256Hex(str){
-  const enc = new TextEncoder().encode(str)
-  const hash = await crypto.subtle.digest('SHA-256', enc)
-  const arr = Array.from(new Uint8Array(hash))
-  return arr.map(b=>b.toString(16).padStart(2,'0')).join('')
-}
-async function isAdmin(){
-  return !!localStorage.getItem(ADMIN_PASS_KEY)
-}
-async function verifyAdmin(pass){
-  const stored = localStorage.getItem(ADMIN_PASS_KEY)
-  if(!stored) return false
-  const h = await sha256Hex(pass)
-  return h === stored
-}
+  const deleteMasechet = (id) => {
+    if (confirm('האם למחוק את הפריט?')) {
+      const newMasechtot = { ...masechtot };
+      delete newMasechtot[id];
+      setMasechtot(newMasechtot);
+    }
+  };
 
-/* -------------------------
-   UI — render list
-   ------------------------- */
-function renderList(){
-  const root = document.getElementById('list')
-  root.innerHTML = ''
-  const data = loadMeta()
-  const keys = Object.keys(data.masechtot).sort((a,b)=> (data.masechtot[b].created||'') - (data.masechtot[a].created||''))
-  if(!keys.length){ root.innerHTML = '<div class="card small muted">אין מסכתות — המנהל יכול להעלות מסכתות דרך לוח המנהל.</div>'; renderAdminList(); return }
-  keys.forEach(id=>{
-    const m = data.masechtot[id]
-    const el = document.createElement('div'); el.className='card'
-    el.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:space-between">
-        <div>
-          <strong>${escapeHtml(m.title)}</strong>
-          <div class="small muted">${escapeHtml(m.author||'—')}</div>
-          <div class="small muted">צפיות: <span id="views_${id}">${m.views||0}</span> — תגובות: <span id="comments_count_${id}">${(m.comments||[]).length}</span></div>
-        </div>
-        <div class="flex">
-          <button data-id="${id}" class="openBtn">פתח</button>
-          <button data-id="${id}" class="downloadBtn">הורד</button>
-          <button data-id="${id}" class="shareBtn">קישור זמני</button>
+  const addComment = () => {
+    if (!newComment.trim()) return;
+    const comment = { text: newComment, when: new Date().toLocaleString('he-IL') };
+    const updated = {
+      ...viewingMasechet,
+      comments: [...(viewingMasechet.comments || []), comment]
+    };
+    setMasechtot({ ...masechtot, [viewingMasechet.id]: updated });
+    setViewingMasechet(updated);
+    setNewComment('');
+  };
+
+  const initTableBuilder = () => {
+    const data = Array(newTable.rows).fill(null).map(() => Array(newTable.cols).fill(''));
+    setNewTable({ ...newTable, data });
+    setShowTableBuilder(true);
+  };
+
+  const updateTableCell = (row, col, value) => {
+    const newData = [...newTable.data];
+    newData[row][col] = value;
+    setNewTable({ ...newTable, data: newData });
+  };
+
+  const saveTable = () => {
+    if (!newTable.title.trim()) {
+      alert('יש להזין כותרת לטבלה');
+      return;
+    }
+    const tableHtml = `<table style="width:100%;border-collapse:collapse;">
+      ${newTable.data.map(row => `<tr>${row.map(cell => 
+        `<td style="border:1px solid #ddd;padding:6px;">${cell || ''}</td>`
+      ).join('')}</tr>`).join('')}
+    </table>`;
+    const table = { title: newTable.title, html: tableHtml };
+    const updated = {
+      ...editingTables,
+      tables: [...(editingTables.tables || []), table]
+    };
+    setMasechtot({ ...masechtot, [editingTables.id]: updated });
+    setEditingTables(updated);
+    setNewTable({ title: '', rows: 2, cols: 2, data: [] });
+    setShowTableBuilder(false);
+  };
+
+  const deleteTable = (idx) => {
+    if (confirm('האם למחוק את הטבלה?')) {
+      const tables = [...editingTables.tables];
+      tables.splice(idx, 1);
+      const updated = { ...editingTables, tables };
+      setMasechtot({ ...masechtot, [editingTables.id]: updated });
+      setEditingTables(updated);
+    }
+  };
+
+  const exportData = () => {
+    const dataStr = JSON.stringify(masechtot, null, 2);
+    const blob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'seder_mishna_export.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (!viewingMasechet && !editingTables) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
+        <div className="max-w-6xl mx-auto">
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <div className="flex justify-between items-start mb-4">
+              <div>
+                <h1 className="text-3xl font-bold mb-2">סדר למשנה</h1>
+                <p className="text-gray-600">מערכת פשוטה להצגת חוברות ומסכתות - קריאה, טבלאות ותגובות</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={exportData} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                  <Save size={18} />ייצא JSON
+                </button>
+                <button onClick={() => { if (confirm('לאפס את כל המידע? זה ימחוק הכל.')) setMasechtot({}); }}
+                  className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                  איפוס
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4">הוסף מסכת / חוברת חדשה</h2>
+            <div className="space-y-3">
+              <div className="flex gap-3">
+                <input type="text" value={newMasechet.title}
+                  onChange={(e) => setNewMasechet({ ...newMasechet, title: e.target.value })}
+                  onKeyPress={(e) => e.key === 'Enter' && handleAddMasechet()}
+                  placeholder="שם המסכת / כותרת החוברת"
+                  className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="text" value={newMasechet.author}
+                  onChange={(e) => setNewMasechet({ ...newMasechet, author: e.target.value })}
+                  placeholder="מחבר (אופציונלי)"
+                  className="w-48 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                <input type="file" accept="application/pdf" onChange={handleFileUpload}
+                  className="w-64 px-3 py-2 border border-gray-300 rounded-lg" />
+                <button onClick={handleAddMasechet}
+                  className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center gap-2">
+                  <Plus size={18} />הוסף
+                </button>
+              </div>
+              <p className="text-sm text-gray-500">הנתונים נשמרים בזיכרון במהלך הפעלה זו. לשמירה קבועה יש לייצא JSON.</p>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            {Object.keys(masechtot).length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm p-8 text-center text-gray-500">
+                אין מסכתות - הוסף מסכת חדשה
+              </div>
+            ) : (
+              Object.values(masechtot).map((m) => (
+                <div key={m.id} className="bg-white rounded-lg shadow-sm p-6">
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <h3 className="text-xl font-bold mb-1">{m.title}</h3>
+                      <p className="text-gray-600 mb-2">{m.author || '—'}</p>
+                      <div className="text-sm text-gray-500">
+                        <span className="ml-4">צפיות: {m.views || 0}</span>
+                        <span className="ml-4">תגובות: {(m.comments || []).length}</span>
+                        <span>טבלאות: {(m.tables || []).length}</span>
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={() => openMasechet(m.id)}
+                        className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center gap-2">
+                        <Eye size={18} />פתח
+                      </button>
+                      <button onClick={() => setEditingTables(m)}
+                        className="px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 flex items-center gap-2">
+                        <Table size={18} />טבלאות
+                      </button>
+                      <button onClick={() => deleteMasechet(m.id)}
+                        className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                        <Trash2 size={18} />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
-    `
-    root.appendChild(el)
-  })
-  renderAdminList()
-}
-
-/* -------------------------
-   Open viewer (inline modal)
-   ------------------------- */
-async function openViewer(id){
-  const data = loadMeta()
-  const m = data.masechtot[id]
-  if(!m) return alert('לא נמצא פריט')
-  // update views
-  m.views = (m.views||0)+1
-  saveMeta(data)
-  renderList()
-
-  // UI fill
-  document.getElementById('vTitle').textContent = m.title
-  document.getElementById('vMeta').textContent = `${m.author || '—'} • הועלה: ${m.created || ''}`
-  const viewerArea = document.getElementById('viewerArea')
-  viewerArea.innerHTML = '<div class="small muted">טוען קובץ...</div>'
-  document.getElementById('viewerCard').style.display = 'block'
-  // load Blob from IDB
-  if(m.fileId){
-    const blob = await getFileBlob(m.fileId)
-    if(blob){
-      // create object URL
-      const url = URL.createObjectURL(blob)
-      viewerArea.innerHTML = `<iframe src="${url}" class="file-embed"></iframe>`
-      // set download handler
-      document.getElementById('downloadCurrent').onclick = ()=> {
-        const a = document.createElement('a')
-        a.href = url
-        a.download = sanitizeFilename(m.title)+'.pdf'
-        a.click()
-      }
-    } else {
-      viewerArea.innerHTML = '<div class="small muted">קובץ לא זמין</div>'
-    }
-  } else {
-    viewerArea.innerHTML = '<div class="small muted">אין קובץ מצורף</div>'
+    );
   }
 
-  // tables
-  const tv = document.getElementById('viewerTables')
-  if(m.tables && m.tables.length){
-    tv.innerHTML = ''
-    m.tables.forEach(t=>{ const d = document.createElement('div'); d.innerHTML=`<strong>${escapeHtml(t.title)}</strong><div>${t.html}</div><hr>`; tv.appendChild(d) })
-  } else tv.innerHTML = '<div class="small muted">אין טבלאות</div>'
+  if (viewingMasechet) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
+        <div className="max-w-6xl mx-auto">
+          <button onClick={() => setViewingMasechet(null)}
+            className="mb-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2">
+            <X size={18} />חזור לרשימה
+          </button>
 
-  // comments
-  renderComments(id)
-  // attach form
-  const cform = document.getElementById('commentForm')
-  cform.onsubmit = e=>{ e.preventDefault(); submitComment(id) }
-}
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h1 className="text-3xl font-bold mb-2">{viewingMasechet.title}</h1>
+            <p className="text-gray-600">מחבר: {viewingMasechet.author || '—'}</p>
+          </div>
 
-/* -------------------------
-   комментарии
-   ------------------------- */
-function renderComments(id){
-  const data = loadMeta(); const m = data.masechtot[id]
-  const wrap = document.getElementById('commentsList'); wrap.innerHTML=''
-  (m.comments||[]).forEach(c=>{
-    const d = document.createElement('div')
-    d.style.borderTop='1px solid #eee'
-    d.style.padding='8px 0'
-    d.innerHTML = `<div style="font-size:0.9em;color:#666">${escapeHtml(c.name||'מנויה')} • ${escapeHtml(c.when||'')}</div><div>${escapeHtml(c.text)}</div>`
-    wrap.appendChild(d)
-  })
-  document.getElementById('commentText').value=''
-  document.getElementById('commentName').value=''
-  document.getElementById('comments_count_'+id)?.textContent = (m.comments||[]).length
-}
-function submitComment(id){
-  const text = document.getElementById('commentText').value.trim()
-  if(!text) return alert('כתוב תגובה')
-  const name = document.getElementById('commentName').value.trim()
-  const data = loadMeta()
-  const m = data.masechtot[id]
-  m.comments = m.comments || []
-  m.comments.push({text, name: name||'מבקר', when: nowLocal()})
-  saveMeta(data)
-  renderComments(id)
-}
+          {viewingMasechet.pdfData && (
+            <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+              <h2 className="text-xl font-bold mb-4">מסמך PDF</h2>
+              <iframe src={viewingMasechet.pdfData}
+                className="w-full h-[700px] border border-gray-300 rounded" />
+            </div>
+          )}
 
-/* -------------------------
-   Admin: upload flow
-   ------------------------- */
-document.getElementById('admUpload').addEventListener('click', async ()=>{
-  const title = document.getElementById('admTitle').value.trim()
-  if(!title) return alert('כתוב כותרת')
-  const fileInput = document.getElementById('admFile')
-  if(!fileInput.files || !fileInput.files[0]) return alert('בחר קובץ PDF')
-  const f = fileInput.files[0]
-  if(f.type !== 'application/pdf') return alert('נא בחר קובץ PDF')
-  const id = uid()
-  try{
-    await saveFileBlob(id, f, {name: f.name, size: f.size, type: f.type})
-    const data = loadMeta()
-    data.masechtot[id] = {id, title, author: document.getElementById('admAuthor').value.trim(), fileId: id, views:0, comments:[], tables:[], created: nowLocal()}
-    saveMeta(data)
-    document.getElementById('admTitle').value=''; document.getElementById('admAuthor').value=''; fileInput.value=''
-    alert('הקובץ הועלה בהצלחה')
-    renderList()
-  }catch(err){ console.error(err); alert('שגיאה בהעלאה: '+err) }
-})
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h2 className="text-xl font-bold mb-4">טבלאות מקושרות</h2>
+            {(viewingMasechet.tables || []).length === 0 ? (
+              <p className="text-gray-500">אין טבלאות</p>
+            ) : (
+              <div className="space-y-4">
+                {viewingMasechet.tables.map((table, idx) => (
+                  <div key={idx} className="border border-gray-200 rounded p-4">
+                    <h3 className="font-bold mb-2">{table.title}</h3>
+                    <div dangerouslySetInnerHTML={{ __html: table.html }} />
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
 
-/* -------------------------
-   Admin: list & delete
-   ------------------------- */
-function renderAdminList(){
-  const panel = document.getElementById('adminPanel')
-  if(panel.style.display === 'none') return
-  const wrap = document.getElementById('adminList'); wrap.innerHTML = ''
-  const data = loadMeta()
-  Object.values(data.masechtot).forEach(m=>{
-    const d = document.createElement('div'); d.style.border='1px solid #eee'; d.style.padding='8px'; d.style.marginTop='6px'
-    d.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><div><strong>${escapeHtml(m.title)}</strong><div class="small muted">${escapeHtml(m.author||'—')}</div></div>
-      <div style="display:flex;gap:6px"><button data-id="${m.id}" class="admDel">מחק</button><button data-id="${m.id}" class="admTables">ערוך טבלאות</button></div></div>`
-    wrap.appendChild(d)
-  })
-  wrap.querySelectorAll('.admDel').forEach(b=> b.addEventListener('click', async e=>{
-    if(!confirm('מחק פריט לצמיתות?')) return
-    const id = e.target.dataset.id
-    const data = loadMeta()
-    delete data.masechtot[id]
-    saveMeta(data)
-    await deleteFileBlob(id)
-    renderList()
-    alert('נמחק')
-  }))
-  wrap.querySelectorAll('.admTables').forEach(b=> b.addEventListener('click', e=>{
-    const id = e.target.dataset.id
-    openTablesEditor(id)
-  }))
-}
-
-/* -------------------------
-   טבלת עורך (Admin) — modal
-   ------------------------- */
-function openTablesEditor(id){
-  const data = loadMeta(); const m = data.masechtot[id]
-  if(!m) return alert('לא נמצא')
-  const content = document.getElementById('modalContent'); content.innerHTML = ''
-  const header = document.createElement('div'); header.innerHTML = `<h2>עורך טבלאות: ${escapeHtml(m.title)}</h2>`
-  const form = document.createElement('form'); form.innerHTML = `<input id="ttitle" placeholder="כותרת הטבלה" style="width:60%"/> <button>הוסף טבלה</button>`
-  const list = document.createElement('div'); list.style.marginTop='8px'
-  content.appendChild(header); content.appendChild(form); content.appendChild(list)
-  function render(){
-    list.innerHTML = ''
-    (m.tables||[]).forEach((t,idx)=>{
-      const d = document.createElement('div'); d.style.border='1px solid #ddd'; d.style.marginTop='8px'; d.style.padding='6px'
-      d.innerHTML = `<div style="display:flex;justify-content:space-between"><strong>${escapeHtml(t.title)}</strong><div><button data-idx="${idx}" class="tedit">ערוך</button> <button data-idx="${idx}" class="tdel">מחק</button></div></div><div>${t.html}</div>`
-      list.appendChild(d)
-    })
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <h2 className="text-xl font-bold mb-4">תגובות</h2>
+            <div className="space-y-3 mb-4">
+              {(viewingMasechet.comments || []).map((comment, idx) => (
+                <div key={idx} className="border-t border-gray-200 pt-3">
+                  <div className="text-sm text-gray-500 mb-1">{comment.when}</div>
+                  <div>{comment.text}</div>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2">
+              <textarea value={newComment}
+                onChange={(e) => setNewComment(e.target.value)}
+                placeholder="כתוב תגובה..." rows="3"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+              <button onClick={addComment}
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 h-fit">
+                שלח
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
   }
-  render()
-  form.addEventListener('submit', async e=>{
-    e.preventDefault()
-    const tt = document.getElementById('ttitle').value.trim(); if(!tt) return alert('כתוב כותרת')
-    const rows = parseInt(prompt('כמה שורות? (מספר)')||'0'), cols = parseInt(prompt('כמה עמודות? (מספר)')||'0')
-    if(!rows || !cols) return alert('מספרים לא תקינים')
-    let html = '<table>'
-    for(let i=0;i<rows;i++){ html += '<tr>'; for(let j=0;j<cols;j++){ const val = prompt(`תוכן תא שורה ${i+1} עמודה ${j+1}`) || ''; html += `<td>${escapeHtml(val)}</td>` } html += '</tr>' }
-    html += '</table>'
-    m.tables = m.tables || []
-    m.tables.push({title: tt, html})
-    saveMeta(data)
-    render()
-    renderList()
-  })
-  list.addEventListener('click', (e)=>{
-    if(e.target.matches('.tdel')){
-      const idx = +e.target.dataset.idx
-      if(confirm('מחק טבלה?')){
-        m.tables.splice(idx,1); saveMeta(data); render(); renderList()
-      }
-    }
-    if(e.target.matches('.tedit')){
-      const idx = +e.target.dataset.idx
-      alert('לעדכון תן למנהל למחוק וליצור מחדש (פשוט)')
-    }
-  })
-  document.getElementById('overlay').style.display = 'flex'
-}
 
-/* -------------------------
-   Export ZIP
-   ------------------------- */
-document.getElementById('exportBtn').addEventListener('click', async ()=>{
-  const data = loadMeta()
-  const zip = new JSZip()
-  zip.file('metadata.json', JSON.stringify(data, null, 2))
-  // קבצים מה-IndexedDB
-  const ids = Object.keys(data.masechtot)
-  for(const id of ids){
-    const m = data.masechtot[id]
-    if(m.fileId){
-      const blob = await getFileBlob(m.fileId)
-      if(blob){
-        const bin = await blob.arrayBuffer()
-        const fname = sanitizeFilename(m.title)+'_'+id+'.pdf'
-        zip.file('files/'+fname, bin)
-      }
-    }
+  if (editingTables) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-4" dir="rtl">
+        <div className="max-w-6xl mx-auto">
+          <button onClick={() => {
+              setEditingTables(null);
+              setShowTableBuilder(false);
+              setNewTable({ title: '', rows: 2, cols: 2, data: [] });
+            }}
+            className="mb-4 px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 flex items-center gap-2">
+            <X size={18} />חזור לרשימה
+          </button>
+
+          <div className="bg-white rounded-lg shadow-sm p-6 mb-6">
+            <h1 className="text-2xl font-bold mb-4">עורך טבלאות: {editingTables.title}</h1>
+
+            {!showTableBuilder ? (
+              <div className="space-y-3">
+                <div className="flex gap-3">
+                  <input type="text" value={newTable.title}
+                    onChange={(e) => setNewTable({ ...newTable, title: e.target.value })}
+                    placeholder="כותרת הטבלה"
+                    className="flex-1 px-3 py-2 border border-gray-300 rounded-lg" />
+                  <input type="number" value={newTable.rows}
+                    onChange={(e) => setNewTable({ ...newTable, rows: Math.max(1, parseInt(e.target.value) || 1) })}
+                    placeholder="שורות" min="1"
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg" />
+                  <input type="number" value={newTable.cols}
+                    onChange={(e) => setNewTable({ ...newTable, cols: Math.max(1, parseInt(e.target.value) || 1) })}
+                    placeholder="עמודות" min="1"
+                    className="w-24 px-3 py-2 border border-gray-300 rounded-lg" />
+                  <button onClick={initTableBuilder}
+                    className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700">
+                    צור טבלה
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <h3 className="font-bold">מלא את תוכן הטבלה:</h3>
+                <div className="overflow-x-auto">
+                  <table className="w-full border-collapse">
+                    <tbody>
+                      {newTable.data.map((row, i) => (
+                        <tr key={i}>
+                          {row.map((cell, j) => (
+                            <td key={j} className="border border-gray-300 p-1">
+                              <input type="text" value={cell}
+                                onChange={(e) => updateTableCell(i, j, e.target.value)}
+                                className="w-full px-2 py-1 border-0 focus:outline-none focus:ring-1 focus:ring-blue-500" />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={saveTable}
+                    className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
+                    שמור טבלה
+                  </button>
+                  <button onClick={() => {
+                      setShowTableBuilder(false);
+                      setNewTable({ title: '', rows: 2, cols: 2, data: [] });
+                    }}
+                    className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700">
+                    ביטול
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4">
+            <h2 className="text-xl font-bold">טבלאות קיימות</h2>
+            {(editingTables.tables || []).length === 0 ? (
+              <div className="bg-white rounded-lg shadow-sm p-6 text-center text-gray-500">
+                אין טבלאות עדיין
+              </div>
+            ) : (
+              editingTables.tables.map((table, idx) => (
+                <div key={idx} className="bg-white rounded-lg shadow-sm p-6">
+                  <div className="flex justify-between items-start mb-4">
+                    <h3 className="text-lg font-bold">{table.title}</h3>
+                    <button onClick={() => deleteTable(idx)}
+                      className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">
+                      מחק
+                    </button>
+                  </div>
+                  <div dangerouslySetInnerHTML={{ __html: table.html }} />
+                </div>
+              ))
+            )}
+          </div>
+        </div>
+      </div>
+    );
   }
-  const content = await zip.generateAsync({type:'blob'})
-  const a = document.createElement('a'); a.href = URL.createObjectURL(content); a.download = 'seder_export.zip'; a.click()
-})
+};
 
-/* -------------------------
-   Clear local
-   ------------------------- */
-document.getElementById('clearBtn').addEventListener('click', async ()=>{
-  if(!confirm('לאפס את כל המידע המקומי? זה ימחוק הכל מהדפדפן הזה.')) return
-  // מחק meta
-  localStorage.removeItem(STORAGE_KEY)
-  // מחק admin pass (לא מוחק DB)
-  // וכן מומלץ למחוק DB באופן ידני אם רוצים
-  renderList()
-  alert('מאופס (מטא נתונים). לקבצים ב-IndexedDB ניתן למחוק באמצעות כלי המפתח או לקרוא deleteFileBlob לכל id.')
-})
-
-/* -------------------------
-   Open / close viewer
-   ------------------------- */
-document.getElementById('closeViewer').addEventListener('click', ()=> {
-  document.getElementById('viewerCard').style.display = 'none'
-  // free object URLs (optional)
-  const ifr = document.querySelector('#viewerArea iframe')
-  if(ifr && ifr.src.startsWith('blob:')) URL.revokeObjectURL(ifr.src)
-})
-
-/* -------------------------
-   Share: יצירת קישור זמני (data url) — מוגבל: נטען ל־blob URL בדפדפן הנוכחי
-   ------------------------- */
-document.getElementById('list').addEventListener('click', async (e)=>{
-  if(e.target.matches('.openBtn')) openViewer(e.target.dataset.id)
-  if(e.target.matches('.downloadBtn')) { const id = e.target.dataset.id; const m = loadMeta().masechtot[id]; const blob = await getFileBlob(m.fileId); if(!blob) return alert('קובץ לא זמין'); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = sanitizeFilename(m.title)+'.pdf'; a.click() }
-  if(e.target.matches('.shareBtn')) {
-    const id = e.target.dataset.id
-    const blob = await getFileBlob(loadMeta().masechtot[id].fileId)
-    if(!blob) return alert('קובץ לא זמין')
-    // נייצר URL זמני ונדגום אותו באמצעות modal
-    const url = URL.createObjectURL(blob)
-    showModal(`<h3>קישור זמני</h3><div class="small muted">קישור זה תקף בדפדפן הנוכחי בלבד עד לרענון/סגירה.</div><div style="margin-top:8px"><input style="width:100%" readonly value="${url}"></div><div style="margin-top:8px"><button onclick="navigator.clipboard.writeText('${url}')">העתק</button></div>`)
-  }
-})
-
-/* -------------------------
-   Modal utilities
-   ------------------------- */
-function showModal(html){ document.getElementById('modalContent').innerHTML = html; document.getElementById('overlay').style.display = 'flex' }
-document.getElementById('closeModal').addEventListener('click', ()=> document.getElementById('overlay').style.display='none')
-document.getElementById('overlay').addEventListener('click', e=>{ if(e.target.id==='overlay') document.getElementById('overlay').style.display='none' })
-
-/* -------------------------
-   Admin login/logout/set password flow
-   ------------------------- */
-document.getElementById('adminBtn').addEventListener('click', async ()=>{
-  const has = await isAdmin()
-  if(!has){
-    // לא מוגדרת עדיין — בקש ליצור סיסמה
-    const pass = prompt('לא נמצאה סיסמת מנהל. בחר סיסמה חדשה:')
-    if(!pass) return
-    const h = await sha256Hex(pass)
-    localStorage.setItem(ADMIN_PASS_KEY, h)
-    alert('סיסמת מנהל נשמרה. עכשיו התחבר שוב כדי לגשת ללוח המנהל.')
-    return
-  }
-  const pass = prompt('הכנס סיסמת מנהל:')
-  if(!pass) return
-  const ok = await verifyAdmin(pass)
-  if(!ok) return alert('סיסמה שגויה')
-  // התחלה מוצלחת
-  document.getElementById('adminPanel').style.display = 'block'
-  document.getElementById('adminStatus').style.display = 'inline-block'
-  document.getElementById('adminBtn').style.display = 'none'
-  renderAdminList()
-})
-
-document.getElementById('admLogout').addEventListener('click', ()=>{
-  document.getElementById('adminPanel').style.display = 'none'
-  document.getElementById('adminStatus').style.display = 'none'
-  document.getElementById('adminBtn').style.display = 'inline-block'
-})
-
-document.getElementById('setPassBtn').addEventListener('click', async ()=>{
-  const pass = document.getElementById('setPass').value
-  if(!pass) return alert('הזן סיסמה')
-  const h = await sha256Hex(pass)
-  localStorage.setItem(ADMIN_PASS_KEY, h)
-  alert('סיסמה נשמרה')
-  document.getElementById('setPass').value = ''
-})
-
-/* -------------------------
-   Tables: inline editing for users? (Admin only already via openTablesEditor)
-   ------------------------- */
-
-/* -------------------------
-   Init: טעינה ראשונית
-   ------------------------- */
-renderList()
-document.getElementById('overlay').style.display = 'none'
-
-</script>
-</body>
-</html>
+export default SederMishna;
